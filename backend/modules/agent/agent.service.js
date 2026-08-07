@@ -30,7 +30,12 @@ const getFeed = async (agentId) => {
     
 };
 
+const getAgentById = async (agentId) => {
+    return await Agent.findById(agentId);
+};
+
 module.exports = {
     createAgent,
     getFeed,
+    getAgentById,
 };
