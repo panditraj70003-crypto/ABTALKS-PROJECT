@@ -1,0 +1,30 @@
+const ApiError = require("../utils/ApiError");
+
+const validate = (schema) => {
+    return (req, res, next) => {
+
+        const result = schema.safeParse({
+            body: req.body,
+            params: req.params,
+            query: req.query,
+        });
+
+        if (!result.success) {
+            const errors = result.error.issues.map(issue => issue.message);
+
+            throw new ApiError(
+                400,
+                errors[0],
+                errors
+            );
+        }
+
+        req.body = result.data.body;
+        req.params = result.data.params;
+        req.query = result.data.query;
+
+        next();
+    };
+};
+
+module.exports = validate;
