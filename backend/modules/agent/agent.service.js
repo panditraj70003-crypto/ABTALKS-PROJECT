@@ -1,5 +1,6 @@
 const Agent = require("./agent.model");
 const ApiError = require("../../utils/ApiError");
+const postService = require("../post/post.service");
 
 const createAgent = async ({ name, domain }) => {
 
@@ -15,6 +16,21 @@ const createAgent = async ({ name, domain }) => {
     return agent;
 };
 
+const getFeed = async (agentId) => {
+
+    const posts = await postService.getAgentPosts(agentId);
+
+    return posts.map(post => ({
+        id: post._id,
+        createdAt: post.createdAt,
+        text: post.text,
+        rationale: post.rationale,
+        sources: post.sources,
+    }));
+    
+};
+
 module.exports = {
     createAgent,
+    getFeed,
 };

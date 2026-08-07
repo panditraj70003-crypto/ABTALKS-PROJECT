@@ -11,4 +11,6 @@ router.post(
     controller.initAgent
 );
 
+router.get("/feed", controller.getFeed);
+
 module.exports = router;
