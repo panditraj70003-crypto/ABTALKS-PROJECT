@@ -13,10 +13,14 @@ app.use("/api/agent", agentRoutes);
 
 const PORT = process.env.PORT || 5000;
 
+
 const startServer = async () => {
+
     try {
 
         await connectDB();
+
+        console.log("MongoDB connected!");
 
         app.listen(PORT, () => {
             console.log(`Server started at port ${PORT}`);
@@ -25,12 +29,13 @@ const startServer = async () => {
     } catch (error) {
 
         console.error(
-            "❌ Failed to start server:",
-            error.message
+            "Failed to start server:",
+            error
         );
 
         process.exit(1);
     }
 };
+
 
 startServer();

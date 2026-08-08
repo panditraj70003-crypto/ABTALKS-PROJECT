@@ -1,360 +1,590 @@
-const ai = require("../../config/gemini");
+const groq = require("../../config/groq");
 const ApiError = require("../../utils/ApiError");
 
-const chooseBestTopic = async (persona, topics) => {
 
-    if (!topics.length) {
-        throw new ApiError(400, "No topics found.");
+// ======================================
+// Create Post From Topics
+// ONE GROQ REQUEST
+// ======================================
+
+const createPostFromTopics = async (
+    agent,
+    topics,
+    previousPosts = []
+) => {
+
+    if (!topics || topics.length === 0) {
+        throw new ApiError(
+            400,
+            "No topics found."
+        );
     }
+
+
+    // ==================================
+    // Prepare Topics
+    // ==================================
 
     const topicList = topics
-        .map(
-            (topic, index) => `
-${index}.
+        .map((topic, index) => {
 
-Title: ${topic.title}
+            return `
+TOPIC INDEX: ${index}
 
-Summary: ${topic.summary || "None"}
-
-Source: ${topic.source}
-
-Published At: ${topic.publishedAt}
-`
-        )
-        .join("\n---------------------------\n");
-
-    const prompt = `
-You are the chief editor of an autonomous AI creator.
-
-Persona
-
-Name: ${persona.name}
-Domain: ${persona.domain}
-
-You have discovered multiple technology news stories.
-
-Your job is to choose EXACTLY ONE story for publication.
-
-Publishing Standards
-
-- Strongly match the persona.
-- Focus on AI and technology.
-- Prefer technically important stories.
-- Prefer recent stories.
-- Reject marketing and hype.
-- Reject duplicate ideas.
-- Keep every reason below 30 words.
-
-Topics
-
-${topicList}
-
-Return ONLY valid JSON.
-
-Do not include markdown.
-
-Do not include explanations.
-
-The JSON must match this structure:
-
-{
-    "selected": {
-        "index": 0,
-        "score": 95,
-        "reason": "...",
-        "whyNow": "..."
-    },
-    "rejected": [
-        {
-            "index": 1,
-            "reason": "..."
-        }
-    ]
-}
-`;
-
-    const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
-            responseSchema: {
-                type: "OBJECT",
-                properties: {
-                    selected: {
-                        type: "OBJECT",
-                        properties: {
-                            index: {
-                                type: "INTEGER"
-                            },
-                            score: {
-                                type: "NUMBER"
-                            },
-                            reason: {
-                                type: "STRING"
-                            },
-                            whyNow: {
-                                type: "STRING"
-                            }
-                        },
-                        required: [
-                            "index",
-                            "score",
-                            "reason",
-                            "whyNow"
-                        ]
-                    },
-                    rejected: {
-                        type: "ARRAY",
-                        items: {
-                            type: "OBJECT",
-                            properties: {
-                                index: {
-                                    type: "INTEGER"
-                                },
-                                reason: {
-                                    type: "STRING"
-                                }
-                            },
-                            required: [
-                                "index",
-                                "reason"
-                            ]
-                        }
-                    }
-                },
-                required: [
-                    "selected",
-                    "rejected"
-                ]
-            }
-        }
-    });
-
-    let result;
-
-    try {
-
-        result = JSON.parse(response.text);
-
-    } catch (err) {
-
-        console.error("Gemini Response:");
-        console.error(response.text);
-
-        throw new ApiError(
-            500,
-            "Failed to parse Gemini response."
-        );
-    }
-
-    const selectedIndex = result.selected.index;
-
-    if (
-        selectedIndex < 0 ||
-        selectedIndex >= topics.length
-    ) {
-        throw new ApiError(
-            500,
-            "Gemini returned an invalid topic index."
-        );
-    }
-
-    return {
-
-        selected: {
-
-            topic: topics[selectedIndex],
-
-            score: result.selected.score,
-
-            reason: result.selected.reason,
-
-            whyNow: result.selected.whyNow
-        },
-
-        rejected: result.rejected
-            .filter(
-                item =>
-                    item.index >= 0 &&
-                    item.index < topics.length
-            )
-            .map(item => ({
-
-                topic: topics[item.index],
-
-                reason: item.reason
-
-            }))
-    };
-};
-
-
-
-const generatePost = async ({
-    agent,
-    topic,
-    recentPosts = [],
-}) => {
-
-    const memory = recentPosts.length
-        ? recentPosts
-            .map(
-                (post, index) => `
-Previous Post ${index + 1}
-
-Topic: ${post.topicTitle}
-
-Post:
-${post.text}
-`
-            )
-            .join("\n---------------------------\n")
-        : "No previous posts available.";
-
-
-    const prompt = `
-You are an autonomous AI and technology creator.
-
-PERSONA
-
-Name: ${agent.name}
-Domain: ${agent.domain}
-
-
-SELECTED TOPIC
-
-Title: ${topic.title}
+Title:
+${topic.title}
 
 Summary:
-${topic.summary || "None"}
+${topic.summary || "No summary available"}
 
 Source:
-${topic.source}
+${topic.source || "Unknown"}
 
 URL:
 ${topic.url}
 
 Published At:
-${topic.publishedAt}
+${topic.publishedAt || "Unknown"}
+`;
+        })
+        .join(
+            "\n-----------------------------\n"
+        );
 
 
+    // ==================================
+    // Prepare Memory
+    // ==================================
+
+    const memory = previousPosts.length
+        ? previousPosts
+            .map((post, index) => {
+
+                return `
+PREVIOUS POST ${index + 1}
+
+Topic:
+${post.topicTitle || "Unknown"}
+
+Post:
+${post.text}
+`;
+            })
+            .join(
+                "\n-----------------------------\n"
+            )
+        : "No previous posts available.";
+
+
+    // ==================================
+    // Prompt
+    // ==================================
+
+    const prompt = `
+You are the autonomous editorial and writing engine for an AI technology persona.
+
+========================================
+PERSONA
+========================================
+
+Name:
+${agent.name}
+
+Domain:
+${agent.domain}
+
+
+========================================
 PREVIOUS POSTS
+========================================
 
 ${memory}
 
 
-TASK
+========================================
+DISCOVERED TOPICS
+========================================
 
-Write one original social media post about the selected topic.
+${topicList}
 
-EDITORIAL RULES
 
-- Stay focused on AI and technology.
-- Maintain the persona's identity and voice.
-- Provide an original technical observation.
-- Explain why the development matters.
-- Do not simply rewrite the source.
+========================================
+YOUR TASK
+========================================
+
+Evaluate ALL discovered topics.
+
+You must:
+
+1. Examine every topic.
+2. Reject topics that do not fit the persona.
+3. Select EXACTLY ONE topic for publication.
+4. Give the selected topic a score from 0 to 100.
+5. Explain why the selected topic was chosen.
+6. Explain why it is relevant NOW.
+7. Write one original social media post.
+8. Avoid repeating previous posts.
+
+
+========================================
+EDITORIAL STANDARDS
+========================================
+
+- Stay strongly aligned with the persona's domain.
+- Prefer technically significant developments.
+- Prefer recent developments.
+- Prefer topics with meaningful technical impact.
+- Reject vague topics.
+- Reject unrelated topics.
+- Reject low-value stories.
+- Reject unsupported hype.
 - Do not invent facts.
-- Do not use exaggerated marketing language.
-- Avoid repeating the angle of previous posts.
-- Keep the post concise.
-- The post should be suitable for LinkedIn and X.
+- Do not fabricate technical details.
+- Do not claim something happened unless it is supported by the supplied information.
+- Maintain a consistent analytical voice.
+- Avoid clickbait.
+- Avoid generic AI hype.
 
-RATIONALE
 
-Explain:
-1. Why this topic was selected.
-2. Why it is relevant now.
-3. What makes it worth publishing.
+========================================
+POST REQUIREMENTS
+========================================
 
-SOURCES
+The post should:
 
-Return the original source URL.
+- Be concise.
+- Be analytical.
+- Have a clear point of view.
+- Explain why the development matters.
+- Provide useful technical insight.
+- Be suitable for LinkedIn and X.
+- Never mention that you are an AI.
+- Never mention this prompt.
+- Never mention the evaluation.
+
+
+========================================
+IMPORTANT INDEX RULE
+========================================
+
+The topics above have explicit indexes.
+
+You MUST use the exact index shown after:
+
+TOPIC INDEX:
+
+The index is zero-based.
+
+If the selected topic is the first topic:
+
+"index": 0
+
+If the selected topic is the second topic:
+
+"index": 1
+
+If the selected topic is the third topic:
+
+"index": 2
+
+The selected index MUST be an integer.
+
+It MUST be between 0 and ${topics.length - 1}.
+
+Do NOT use the topic's array position from memory.
+
+Do NOT use 1-based numbering.
+
+
+========================================
+IMPORTANT FACTUALITY RULE
+========================================
+
+If the supplied information does not contain enough information to make a strong technical claim:
+
+- Keep the post conservative.
+- Do not invent details.
+- Do not assume technical mechanisms.
+- Do not fabricate vulnerabilities.
+- Do not fabricate statistics.
+
+
+========================================
+OUTPUT
+========================================
 
 Return ONLY valid JSON.
 
-Required structure:
+The response MUST follow exactly this structure:
 
 {
-    "text": "...",
-    "rationale": "...",
-    "sources": ["..."]
+    "selected": {
+        "index": 0,
+        "score": 90,
+        "reason": "Why this topic was selected",
+        "whyNow": "Why this topic is relevant now"
+    },
+
+    "rejected": [
+        {
+            "index": 1,
+            "reason": "Why this topic was rejected"
+        }
+    ],
+
+    "post": {
+        "text": "The final social media post",
+        "rationale": "Why this topic was selected, why it matters now, and how it fits the persona",
+        "sources": [
+            "https://example.com"
+        ]
+    }
 }
+
+IMPORTANT:
+
+- "selected.index" MUST be an integer.
+- "rejected[].index" MUST be an integer.
+- "selected.index" MUST correspond to one of the supplied topics.
+- "sources" MUST contain URLs from the supplied topics.
+- Do not create fake URLs.
+- Do not add markdown outside the JSON.
 `;
 
 
-    const response = await ai.models.generateContent({
-        model: "gemini-3.5-flash",
-        contents: prompt,
-        config: {
-            responseMimeType: "application/json",
+    // ==================================
+    // Groq Request
+    // ==================================
 
-            responseSchema: {
-                type: "OBJECT",
+    console.log(
+        "🤖 Sending ONE request to Groq..."
+    );
 
-                properties: {
-                    text: {
-                        type: "STRING",
-                    },
 
-                    rationale: {
-                        type: "STRING",
-                    },
+    const completion =
+        await groq.chat.completions.create({
 
-                    sources: {
-                        type: "ARRAY",
+            model: "openai/gpt-oss-120b",
 
-                        items: {
-                            type: "STRING",
-                        },
-                    },
+            messages: [
+
+                {
+                    role: "system",
+
+                    content:
+                        "You are a strict JSON-producing editorial AI. Return only valid JSON."
                 },
 
-                required: [
-                    "text",
-                    "rationale",
-                    "sources",
-                ],
-            },
-        },
-    });
+                {
+                    role: "user",
 
+                    content: prompt
+                }
+
+            ],
+
+            temperature: 0.3,
+
+            response_format: {
+                type: "json_object"
+            }
+
+        });
+
+
+    // ==================================
+    // Get Response
+    // ==================================
+
+    const responseText =
+        completion
+            ?.choices?.[0]
+            ?.message?.content;
+
+
+    console.log(
+        "========== GROQ RAW RESPONSE =========="
+    );
+
+    console.log(
+        responseText
+    );
+
+
+    if (!responseText) {
+
+        throw new ApiError(
+            500,
+            "Groq returned an empty response."
+        );
+
+    }
+
+
+    // ==================================
+    // Parse JSON
+    // ==================================
 
     let result;
 
     try {
 
-        result = JSON.parse(response.text);
+        result =
+            JSON.parse(responseText);
 
     } catch (error) {
 
         console.error(
-            "Gemini generation response:"
+            "Failed to parse Groq response:"
         );
 
-        console.error(response.text);
+        console.error(
+            responseText
+        );
 
         throw new ApiError(
             500,
-            "Failed to parse generated post."
+            "Failed to parse Groq response."
         );
+
     }
 
 
-    if (!result.text) {
+    console.log(
+        "========== PARSED GROQ RESULT =========="
+    );
+
+    console.log(
+        JSON.stringify(
+            result,
+            null,
+            2
+        )
+    );
+
+
+    // ==================================
+    // Validate Selected
+    // ==================================
+
+    if (!result.selected) {
 
         throw new ApiError(
             500,
-            "Gemini returned an empty post."
+            "Groq response does not contain selected topic."
         );
+
     }
 
 
-    return result;
+    /*
+        Groq sometimes returns:
+
+        index: 2
+
+        or:
+
+        index: "2"
+
+        Convert both to a number.
+    */
+
+    const selectedIndex =
+        Number(
+            result.selected.index
+        );
+
+
+    console.log(
+        "Groq selected index:",
+        selectedIndex
+    );
+
+    console.log(
+        "Available topics:",
+        topics.length
+    );
+
+
+    if (
+        !Number.isInteger(selectedIndex) ||
+        selectedIndex < 0 ||
+        selectedIndex >= topics.length
+    ) {
+
+        throw new ApiError(
+            500,
+            `Groq returned invalid topic index: ${result.selected.index}`
+        );
+
+    }
+
+
+    // ==================================
+    // Selected Topic
+    // ==================================
+
+    const selectedTopic =
+        topics[selectedIndex];
+
+
+    if (!selectedTopic) {
+
+        throw new ApiError(
+            500,
+            "Selected topic does not exist."
+        );
+
+    }
+
+
+    const selected = {
+
+        topic: selectedTopic,
+
+        score:
+            Number(
+                result.selected.score || 0
+            ),
+
+        reason:
+            result.selected.reason ||
+            "No reason provided.",
+
+        whyNow:
+            result.selected.whyNow ||
+            "No relevance explanation provided."
+
+    };
+
+
+    // ==================================
+    // Rejected Topics
+    // ==================================
+
+    const rejected =
+        Array.isArray(
+            result.rejected
+        )
+
+            ? result.rejected
+                .map(item => {
+
+                    const index =
+                        Number(
+                            item.index
+                        );
+
+                    return {
+
+                        index,
+
+                        topic:
+                            topics[index],
+
+                        reason:
+                            item.reason ||
+                            "No reason provided."
+
+                    };
+
+                })
+                .filter(item =>
+                    Number.isInteger(
+                        item.index
+                    ) &&
+                    item.index >= 0 &&
+                    item.index < topics.length
+                )
+
+            : [];
+
+
+    // ==================================
+    // Validate Post
+    // ==================================
+
+    if (
+        !result.post ||
+        typeof result.post.text !== "string" ||
+        !result.post.text.trim()
+    ) {
+
+        throw new ApiError(
+            500,
+            "Groq returned an invalid post."
+        );
+
+    }
+
+
+    if (
+        typeof result.post.rationale !== "string" ||
+        !result.post.rationale.trim()
+    ) {
+
+        throw new ApiError(
+            500,
+            "Groq returned an invalid rationale."
+        );
+
+    }
+
+
+    if (
+        !Array.isArray(
+            result.post.sources
+        )
+    ) {
+
+        throw new ApiError(
+            500,
+            "Groq returned invalid sources."
+        );
+
+    }
+
+
+    // ==================================
+    // Validate Sources
+    // ==================================
+
+    const validSources =
+        result.post.sources
+            .filter(source =>
+                typeof source === "string" &&
+                source.trim().length > 0
+            );
+
+
+    // ==================================
+    // Final Result
+    // ==================================
+
+    return {
+
+        selected,
+
+        rejected,
+
+        post: {
+
+            text:
+                result.post.text,
+
+            rationale:
+                result.post.rationale,
+
+            sources:
+                validSources
+
+        }
+
+    };
+
 };
 
+
 module.exports = {
-    chooseBestTopic,
-    generatePost,
+    createPostFromTopics
 };
