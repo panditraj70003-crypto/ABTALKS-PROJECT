@@ -54,6 +54,17 @@ const createPost = async (data) => {
     );
 };
 
+const hasPublishedTopic = async (
+    agentId,
+    topicUrl
+) => {
+
+    return await postService.hasPublishedTopic(
+        agentId,
+        topicUrl
+    );
+};
+
 
 module.exports = {
     createAgent,
@@ -61,4 +72,5 @@ module.exports = {
     getFeed,
     getRecentPosts,
     createPost,
+    hasPublishedTopic
 };

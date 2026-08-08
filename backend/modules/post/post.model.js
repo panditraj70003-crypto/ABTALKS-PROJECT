@@ -12,6 +12,11 @@ const postSchema = new mongoose.Schema(
             type: String,
             required: true,
         },
+        topicUrl: {
+            type: String,
+            required: true,
+            trim: true
+        },
 
         text: {
             type: String,

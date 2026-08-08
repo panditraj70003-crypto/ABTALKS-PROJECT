@@ -50,9 +50,22 @@ const getRecentPosts = async (
 
 };
 
+const hasPublishedTopic = async (
+    agentId,
+    topicUrl
+) => {
+
+    const post = await Post.findOne({
+        agentId,
+        topicUrl
+    });
+
+    return !!post;
+};
 
 module.exports = {
     createPost,
     getAgentPosts,
-    getRecentPosts
+    getRecentPosts,
+    hasPublishedTopic
 };

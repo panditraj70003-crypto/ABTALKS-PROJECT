@@ -24,8 +24,37 @@ const runAgent = async (agent) => {
 
     console.log("🔎 Discovering topics...");
 
-    const topics =
-        await discovery.discoverTopics();
+    let topics =
+    await discovery.discoverTopics();
+
+
+// ======================================
+// Remove Already Published Topics
+// ======================================
+
+const newTopics = [];
+
+for (const topic of topics) {
+
+    const alreadyPublished =
+        await agentService.hasPublishedTopic(
+            agent._id,
+            topic.url
+        );
+
+    if (!alreadyPublished) {
+
+        newTopics.push(topic);
+
+    } else {
+
+        console.log(
+            `⏭️ Already published: ${topic.title}`
+        );
+    }
+}
+
+topics = newTopics;
 
     console.log(
         `Topics discovered: ${topics.length}`
@@ -118,13 +147,16 @@ const runAgent = async (agent) => {
         "💾 Saving post to MongoDB..."
     );
 
-    const post =
+const post =
     await agentService.createPost({
 
         agentId: agent._id,
 
         topicTitle:
             result.selected.topic.title,
+
+        topicUrl:
+            result.selected.topic.url,
 
         text:
             result.post.text,
@@ -134,7 +166,6 @@ const runAgent = async (agent) => {
 
         sources:
             result.post.sources
-
     });
 
 
@@ -316,7 +347,7 @@ const startScheduler = (agentId) => {
 
         },
 
-        30*60 * 1000
+        60 * 1000
     );
 };
 
