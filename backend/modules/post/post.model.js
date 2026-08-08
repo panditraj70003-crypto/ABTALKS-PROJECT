@@ -8,6 +8,11 @@ const postSchema = new mongoose.Schema(
             required: true,
         },
 
+        topicTitle: {
+            type: String,
+            required: true,
+        },
+
         text: {
             type: String,
             required: true,
